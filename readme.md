@@ -68,4 +68,47 @@ named <b>fieldName</b> with the value in <b>fieldValue</b>,
 
 </pre>
 
+## insertIntoArrayField(collection, filter, arrayName, value)
+<pre>
+<b>returns : Promise&lt;Object&gt;</b>
+inserts <b>unique</b> data in array fields,
+the operation succeeds indicating that value is inserted or it previously existed in arrayName,
+and fails indicating that object determined by filter wasn't found
+    success:
+        { succeeded : true }
+    failure:
+        { succeeded : false, type : "error code", message : "error description" }
+</pre>
 
+## removeFromArrayField(collection, filter, arrayName, value)
+<pre>
+<b>returns : Promise&lt;Object&gt;</b>
+removes an element from an array field,
+the operation succeeds indicating that element is no more existent in 
+the array whether it existed before or not,
+and fails indicating that the document is not found
+    success:
+        { succeeded : true }
+    failure:
+        { succeeded : false, type : "error code", message : "error description" }
+</pre>
+
+## deleteObject(collection, filter)
+<pre>
+<b>returns : Promise&lt;Object&gt;</b>
+deletes an object from a collection
+    success:
+        { succeeded : true,  deletedCount : 1}
+    failure:
+        { succeeded : false. type: "errorCode", message: "error description" } if object not found
+</pre>
+
+## dropCollection(collection)
+<pre>
+<b>returns : Promise&lt;Object&gt;</b>
+drops an entire collection
+    success:
+        { succeeded : true}
+    failure:
+        { succeeded : false. type: "errorCode", message: "error description" } if collection isn't found
+</pre>
