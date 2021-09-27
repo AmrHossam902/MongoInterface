@@ -875,5 +875,4 @@ describe("Testing DB interface", function(){
         });
     });
 
-    
 });
