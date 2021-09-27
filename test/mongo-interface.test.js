@@ -21,7 +21,7 @@ let DB; //instance of the interface to test
  * }
  */
 
- before((done)=>{
+before((done)=>{
     DB = new DbInterface(dbName, dbUrl);
     done();
 });
@@ -820,5 +820,60 @@ describe("Testing DB interface", function(){
             });
         });
     });
+
+    describe('\n----------Dropping collection--------------', function(){
+        describe('deleting exiting collection', function(){
+            it('should return succeeded = true , collection disappears from database', function(){
+                return new (require('mongodb').MongoClient)(dbUrl).connect()
+                .then( function(client){
+                    return client.db(dbName).collection(collName).insertMany([
+                        {
+                            "name":"amr",
+                            "code" : "234567",
+                            "friends" : ["ayman"]
+                        },{
+                            "name": "ayman",
+                            "code":"342212",
+                            "friends": []
+                        },{
+                            "name": "hussein",
+                            "code": "543987",
+                            "friends": []
+                        }
+                    ])
+                    .then(function(result) {
+                        if(Object.keys(result.insertedIds).length == 3)
+                            return DB.dropCollection(collName);
+                        else
+                            return Promise.reject(new Error("INSERTION_FAILURE"));
+                    })
+                    .then(async function(result){
+                        assert.equal(result.succeeded, true);
+                        
+                        let data = await client.db(dbName).collections();
+                        assert.equal(data.length, 0);
+                    })
+                    .finally(()=>{
+                        return client.close();
+                    });
+                });
+            });
+        });
+
+        describe('deleting non exiting collection', function(){
+            it('should return succeeded = false , collection disappears from database', function(){
+                return DB.dropCollection('dummy')
+                .then(async (result)=>{
+                    assert.equal(result.succeeded, false);
+                    assert.equal(result.type, 26); //namespace not found
+                    const client = await new (require('mongodb').MongoClient)(dbUrl).connect();
+                    const collections = await client.db(dbName).collections();
+                    assert.equal(collections.length, 1);
+                    await client.close();
+                });
+            });
+        });
+    });
+
     
 });

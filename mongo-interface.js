@@ -184,10 +184,10 @@ DbInterface.prototype.removeFromArrayField = function(collection, filter, arrayN
 DbInterface.prototype.dropCollection = function(collection){
     
     return this.connect()
-    .then(function(client){
+    .then((client)=>{
         return client.db(this.dbname).collection(collection).drop();
     })
-    .then( function(result){
+    .then((result)=>{
         return { succeeded : true }
     })
     .catch( function(reason){
