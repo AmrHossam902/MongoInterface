@@ -104,14 +104,14 @@ DbInterface.prototype.insertMultipleObjects = function(collection, objectsArr){
  *          Promise<{succeeded: boolean, type:number, message:string}>
  * }
  */
-DbInterface.prototype.searchCollection = function(collection, filter, project, sortObj, limit){
+DbInterface.prototype.searchCollection = function(collection, filter, project, sortObj, limit, page){
     return this.connect()
     .then( (client)=>{
         if(filter == undefined || typeof filter !== "object") filter = {};
         if(sortObj == undefined || typeof sortObj !== "object") sortObj = {};
         if(limit == undefined || typeof limit !== "number") limit = 0;
         if(project == undefined || typeof project !== "object") project = {};
-        return client.db(this.dbname).collection(collection).find(filter).project(project).sort(sortObj).limit(limit);
+        return client.db(this.dbname).collection(collection).find(filter).project(project).sort(sortObj).skip(page * limit).limit(limit);
     })
     .then( async (cursor)=> {
         let array = await cursor.toArray();
