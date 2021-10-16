@@ -111,6 +111,7 @@ DbInterface.prototype.searchCollection = function(collection, filter, project, s
         if(sortObj == undefined || typeof sortObj !== "object") sortObj = {};
         if(limit == undefined || typeof limit !== "number") limit = 0;
         if(project == undefined || typeof project !== "object") project = {};
+        if(page == undefined || typeof page !== "number") page = 0;
         return client.db(this.dbname).collection(collection).find(filter).project(project).sort(sortObj).skip(page * limit).limit(limit);
     })
     .then( async (cursor)=> {
