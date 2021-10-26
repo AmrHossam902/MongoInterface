@@ -11,19 +11,6 @@ function DbInterface(dbname, url){
 
 
 /**
- * this function aims to insert a new object in the collection
- * @param {string} collection name of the collection to insert in
- * @param {object} object object contains the properties
- *  to be inserted in the collection
- * @returns {Promise<{succeeded:boolean,
- *                    type:string|number,
- *                    message:string}>
- *}
- * type identifies the error type,
- * message describes the actual error that happened
- */
-
-/**
  * returns MongoCLient needed for different database operations
  * @returns {Promise<mongo.MongoClient>} mongoclient
  */
@@ -33,14 +20,24 @@ DbInterface.prototype.connect = async function(){
     return this.client = (new mongo.MongoClient(this.url)).connect();
 }
 
-
+/**
+ * call this function to end the connection of the interface
+ * @returns {void}
+ */
 DbInterface.prototype.close = function(){
     return this.connect().then(client=>{
         return client.close();
     });
 }
 
-
+/**
+ * this function aims to insert a new object in the collection
+ * @param {string} collection name of the collection to insert in
+ * @param {object} object object contains the properties
+ *  to be inserted in the collection
+ * @returns {Promise<{ insertedId: mongo.ObjectId}>} id of the new object in the database
+ * @throws {UniqueIndexViolationError, SchemaViolationError, DbError}
+ */
 DbInterface.prototype.insertObject = function(collection, object){
 
     return this.connect().then( (client) => {
@@ -60,21 +57,12 @@ DbInterface.prototype.insertObject = function(collection, object){
 }
 
 /**
- * insert multiple objects into a collection
+ * insert multiple objects into a collection one by one, and stops insertion with the 
+ * first error
  * @param {mongo.Collection} collection collection to insert into 
  * @param {Array<Object>}>} objectsArr array of objects to insert into a collection
- * @returns {Promise<{
- *              succeeded:true,
- *              insertedIds:object
- * }>|Promise<{
- *              succeeded:false,
- *              type: string|number,
- *              message: string,
- *              insertedCount:number
- * }>}
- * the 1st form is when the insertion of all elements succeeds,
- * the 2nd in which any kind of error happend, some elemnts may get inserted successfully 
- * in this case as well
+ * @returns {Promise<{insertedIds: mongo.ObjectId []}>}
+ * @throws { UniqueIndexViolationError, SchemaViolationError, DbError}
  */
 DbInterface.prototype.insertMultipleObjects = function(collection, objectsArr){
 
@@ -104,9 +92,8 @@ DbInterface.prototype.insertMultipleObjects = function(collection, objectsArr){
  *                          in the result e.g. {name:1, id:1}
  * @param {object} sortObj object determines how to sort the result e.g.{id:1, name:-1}
  * @param {number} limit limiting the number of returned documents in the result
- * @returns {Promise<{succeeded: boolean, data: object[]}>|
- *          Promise<{succeeded: boolean, type:number, message:string}>
- * }
+ * @returns {Promise<{data: object[]}>} the objects that match the selection criteria
+ * @throws {DbError} 
  */
 DbInterface.prototype.searchCollection = function(collection, filter, project, sortObj, limit, page){
     return this.connect()
@@ -127,6 +114,15 @@ DbInterface.prototype.searchCollection = function(collection, filter, project, s
     });
 }
 
+/**
+ * this function updates a single field in a single document with a value
+ * @param {string} collection string identifiying collection to operate on
+ * @param {object} filter object containing the selection criteria of the document
+ * @param {string} fieldName name of the field to update
+ * @param {any} fieldValue value of the field to update with
+ * @returns {true}
+ * @throws {UniqueIndexViolationError, SchemaViolationError, ObjectExistenceError, DbError}
+ */
 DbInterface.prototype.setField = function(collection, filter, fieldName, fieldValue){
 
     return this.connect()
@@ -156,11 +152,12 @@ DbInterface.prototype.setField = function(collection, filter, fieldName, fieldVa
 /**
  * inserts data into fields of type array and makes sure that the array contains 
  * unique data
- * @param {string} collection 
- * @param {object} filter 
- * @param {string} arrayName 
- * @param {any} value 
- * @returns 
+ * @param {string} collection name of the collection to operate on
+ * @param {object} filter object containing the selection criteria 
+ * @param {string} arrayName name of the field to update
+ * @param {any} value value to insert into the array
+ * @returns {true}
+ * @throws {SchemaViolationError, ObjectExistenceError, DbError}
  */
 DbInterface.prototype.insertIntoArrayField = function(collection, filter, arrayName, value){
     return this.connect()
@@ -184,6 +181,15 @@ DbInterface.prototype.insertIntoArrayField = function(collection, filter, arrayN
     });
 }
 
+/**
+ * this function is used to remove all items identified by value param from an arrayfield
+ * @param {string} collection collection name to operate on
+ * @param {object} filter object used to filter documents of a collection
+ * @param {string} arrayName name of the array to remove items from
+ * @param {any} value value to be removed from the array
+ * @returns {true}
+ * @throws { ObjectExistenceError, DbError}
+ */
 DbInterface.prototype.removeFromArrayField = function(collection, filter, arrayName, value){
     return this.connect()
     .then((client)=>{
@@ -203,6 +209,12 @@ DbInterface.prototype.removeFromArrayField = function(collection, filter, arrayN
     });
 }
 
+/**
+ * removes a collection from database
+ * @param {string} collection name of the collection to drop
+ * @returns {true}
+ * @throws {DbError}
+ */
 DbInterface.prototype.dropCollection = function(collection){
     
     return this.connect()

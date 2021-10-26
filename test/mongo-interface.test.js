@@ -6,7 +6,7 @@ const {
     WriteError,
     ObjectExistenceError,
     UniqueIndexViolationError,
-    ShemaViolationError
+    SchemaViolationError
 } = require("../errors/errors");
 
 const dbName = "social";
