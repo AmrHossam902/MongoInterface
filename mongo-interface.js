@@ -1,5 +1,5 @@
 const mongo = require("mongodb");
-
+const {ObjectExistenceError, UniqueIndexViolationError, SchemaViolationError, DbError, WriteError} = require("./errors/errors");
 function DbInterface(dbname, url){
     this.dbname = dbname;
     this.url = url;
@@ -33,11 +33,13 @@ DbInterface.prototype.connect = async function(){
     return this.client = (new mongo.MongoClient(this.url)).connect();
 }
 
+
 DbInterface.prototype.close = function(){
     return this.connect().then(client=>{
         return client.close();
     });
 }
+
 
 DbInterface.prototype.insertObject = function(collection, object){
 
@@ -45,15 +47,15 @@ DbInterface.prototype.insertObject = function(collection, object){
         return client.db(this.dbname).collection(collection).insertOne(object);
     })
     .then( (result) => {
-        return { succeeded : true, insertedId : result.insertedId };
+        return { insertedId : result.insertedId };
     })
     .catch( (reason) => {
         if(reason.code == 11000)
-            return { succeeded : false, type: 'UNIQUE_FIELD_ERROR', message: reason.errmsg};
+            throw new UniqueIndexViolationError(reason.errmsg, 0, 0);
         else if(reason.code == 121)
-            return { succeeded : false, type: 'SCHEMA_VALIDATION_ERROR', message: reason.errmsg};
+            throw new SchemaViolationError(reason.errmsg, 0, 0);
         else
-            return { succeeded : false, type: reason.code, message: reason.errmsg };
+            throw new DbError(reason.errmsg);
     });
 }
 
@@ -81,14 +83,16 @@ DbInterface.prototype.insertMultipleObjects = function(collection, objectsArr){
         return client.db(this.dbname).collection(collection).insertMany(objectsArr);
     })
     .then( (result)=> {
-        return { succeeded : true, insertedIds: result.insertedIds}
+        return { insertedIds: result.insertedIds}
     })
     .catch( (reason) => {
+        const nInserted = reason.result.result.nInserted;
         if(reason.code == 11000)
-            return { succeeded : false,  type: "UNIQUE_FIELD_ERROR", message: reason.errmsg, insertedCount: reason.insertedCount};
+            throw new UniqueIndexViolationError(reason.errmsg, nInserted, 0);
         else if(reason.code == 121)
-            return { succeeded : false, type: "SCHEMA_VALIDATION_ERROR", message: reason.errmsg, insertedCount: reason.insertedCount};
-        return { succeeded : false, type: reason.code, message: reason.errmsg, insertedCount: reason.insertedCount}
+            throw new SchemaViolationError(reason.errmsg, nInserted, 0);
+        else
+            throw new DbError(reason.errmsg);
     });
 }
 
@@ -116,10 +120,10 @@ DbInterface.prototype.searchCollection = function(collection, filter, project, s
     })
     .then( async (cursor)=> {
         let array = await cursor.toArray();
-        return { succeeded : ( (array.length)? true : false),  data: array}
+        return { data: array}
     })
     .catch( (reason)=>{
-        return { succeeded : false, type: reason.code,  message:reason.message };
+        throw new DbError(reason.errmsg);
     });
 }
 
@@ -130,13 +134,22 @@ DbInterface.prototype.setField = function(collection, filter, fieldName, fieldVa
         return client.db(this.dbname).collection(collection).updateOne(filter, { "$set" : {[fieldName] : fieldValue}});
     })
     .then( (result)=>{
-        if(result.matchedCount)
-            return { succeeded:true }
+        if(result.modifiedCount)
+            return true;
         else
-            return { succeeded:false, type: "OBJECT_EXISTENCE_ERROR", message: "object not found"}
+            throw result;
     })
     .catch( (reason)=>{
-        return { succeeded:false, type: reason.code ,message: reason.message};
+
+        if(reason.code == 11000)
+            throw new UniqueIndexViolationError(`the value "${fieldValue}" is duplicated in another document for "${fieldName}""`, 0, 0);
+        else if(reason.code == 121)
+            throw new SchemaViolationError(`the value "${fieldValue}" doesn't comply with the collection schema of "${collection}"`, 0, 0);
+        else if(reason.matchedCount === 0)
+            throw new ObjectExistenceError(`the object to be modified is not found given this criteria ${JSON.stringify(filter)}`);
+        else
+            throw new DbError(reason.errmsg);
+
     });    
 }
 
@@ -149,19 +162,25 @@ DbInterface.prototype.setField = function(collection, filter, fieldName, fieldVa
  * @param {any} value 
  * @returns 
  */
- DbInterface.prototype.insertIntoArrayField = function(collection, filter, arrayName, value){
+DbInterface.prototype.insertIntoArrayField = function(collection, filter, arrayName, value){
     return this.connect()
     .then((client)=>{
         return client.db(this.dbname).collection(collection).updateOne(filter, {$addToSet:{[arrayName]: value}});
     })
     .then((result)=>{
-        if(result.matchedCount)
-            return {succeeded: true};
+        if(result.acknowledged && result.matchedCount)
+            return true;
         else
-            return { succeeded:false, type: "OBJECT_EXISTENCE_ERROR", message: "object not found"};
+            throw result;
     })
     .catch((reason)=>{
-        return { succeeded : false, type: reason.code, message: reason.message};
+
+        if(reason.code == 121)
+            throw new SchemaViolationError(`the value "${value}" doesn't comply with the collection schema of "${collection}"`, 0, 0);
+        else if(reason.matchedCount === 0)
+            throw new ObjectExistenceError(`the object to be modified is not found given this criteria ${JSON.stringify(filter)}`);
+        else
+            throw new DbError(reason.errmsg);
     });
 }
 
@@ -171,16 +190,18 @@ DbInterface.prototype.removeFromArrayField = function(collection, filter, arrayN
         return client.db(this.dbname).collection(collection).updateOne(filter, { "$pull" : { [arrayName] : value}});
     })
     .then((result)=>{
-        if(result.matchedCount)
-            return {succeeded: true};
+        if(result.acknowledged && result.matchedCount)
+            return true
         else
-            return { succeeded:false, type: "OBJECT_EXISTENCE_ERROR", message: "object not found"};
+            throw result;
     })
     .catch((reason)=>{
-        return { succeeded : false, type:reason.code, message: reason.message};
+        if(reason.matchedCount === 0)
+            throw new ObjectExistenceError(`the object to be modified is not found given this criteria ${JSON.stringify(filter)}`);
+        else
+            throw new DbError(reason.errmsg);
     });
 }
-
 
 DbInterface.prototype.dropCollection = function(collection){
     
@@ -189,26 +210,31 @@ DbInterface.prototype.dropCollection = function(collection){
         return client.db(this.dbname).collection(collection).drop();
     })
     .then((result)=>{
-        return { succeeded : true }
+        return true 
     })
     .catch( function(reason){
-        return { succeeded : false, type: reason.code, message : reason.message }
+        throw new DbError(reason.errmsg);
     });
 }
 
+/**
+ * deletes a single object from a collection
+ * @param {string} collection collection to delete object from
+ * @param {object} filter filter object used to select the element to be deleted
+ * @returns {Promise<{nDeleted: number}>}
+ * @throws {DbError} in case error occurs while db operation
+ */
 DbInterface.prototype.deleteObject = function(collection, filter){
     return this.connect()
     .then((client)=>{
         return client.db(this.dbname).collection(collection).deleteOne(filter);
     })
     .then( (result) => {
-        if(result.deletedCount)
-            return { succeeded: true, deletedCount: result.deletedCount };
-        else
-            return { succeeded: false, type: "OBJECT_EXISTENCE_ERROR", message: "document not found"}
+        if(result.acknowledged)
+            return { nDeleted: result.deletedCount };
     })
     .catch( (reason) => {
-        return { succeeded: false, type: reason.code, message: reason.message };
+        throw new DbError(reason.errmsg);
     });
 }
 

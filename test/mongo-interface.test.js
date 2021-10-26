@@ -1,10 +1,18 @@
 const assert = require("assert");
 const DbInterface = require("../mongo-interface");
+const { describe, it} = require("mocha");
+const mongodb = require('mongodb');
+const {
+    WriteError,
+    ObjectExistenceError,
+    UniqueIndexViolationError,
+    ShemaViolationError
+} = require("../errors/errors");
+
 const dbName = "social";
 const collName = "person";
 const dbUrl = "mongodb://localhost:27017";
-const { describe, it} = require("mocha");
-const mongodb = require('mongodb');
+
 
 /**
  * @type {DbInterface}
@@ -74,28 +82,24 @@ describe("Testing DB interface", function(){
     
     describe('\n---------Inserting single object----------', function(){
         describe('Inserting Correct format', function(){
-            it("should return succeeded with true and insertedId", function(){
-    
+            it("should return object with insertedId", function(){
                 return DB.insertObject(collName, {"name": "Amr", "code": "213543", "friends": []})
                 .then(result=>{
-                    assert.equal(result.succeeded, true, result.message);
                     assert.ok(result.insertedId, "insertedId not found in result");
                 });
             });
         });
     
         describe("Inserting Duplicated object", function(){
-            it("should return UNIQUE_FIELD_ERROR and succeeded is set to false", function(){
-    
+            it("should return UNIQUE_INDEX_VIOLATION_ERROR", function(){
                 return new mongodb.MongoClient(dbUrl).connect()
                 .then((client)=>{
                     //insert the very first user in the database
                     return client.db(dbName).collection(collName).insertOne({"name": "Amr", "code": "324123", "friends":[]})
                     .then(()=>{
                         return DB.insertObject(collName, {"name": "Amr", "code": "324123", "friends":[]})
-                        .then((result)=>{
-                            assert.equal(result.succeeded, false, result.message);
-                            assert.equal(result.type, "UNIQUE_FIELD_ERROR", result.message);
+                        .catch((reason)=>{
+                            assert.equal(reason.name, "UNIQUE_INDEX_VIOLATION_ERROR");
                         });
                     })
                     .finally(()=>{
@@ -107,31 +111,28 @@ describe("Testing DB interface", function(){
         });
     
         describe("leaving out required field", function(){
-            it("should return SCHEMA_VALIDATION_ERROR", function(){
+            it("should return SCHEMA_VIOLATION_ERROR", function(){
                 return DB.insertObject("person", {"name": "amr", "friends":[]})
-                .then(result=>{
-                    
-                    assert.equal(result.succeeded, false, "correct insertion, insert Id = " + result.insertedId );
-                    assert.equal(result.type, "SCHEMA_VALIDATION_ERROR");
-                })
+                .catch(reason=>{
+                    assert.equal(reason.name, "SCHEMA_VIOLATION_ERROR");
+                });
             });
         });
     
         describe("inserting incorrect bson type", function(){
-            it("should return SCHEMA_VALIDATION_ERROR", function(){
+            it("should return SCHEMA_VIOLATION_ERROR", function(){
                 return DB.insertObject('person', {"name": 34, code:"234321", friends:[]})
-                .then(result=>{
-                    assert.equal(result.succeeded, false);
-                    assert.equal(result.type, "SCHEMA_VALIDATION_ERROR");
+                .catch(reason=>{
+                    assert.equal(reason.name, "SCHEMA_VIOLATION_ERROR");
                 })
             })
         });
     
     });
     
-    describe('\n---------Inserting Multiple objects--------', function(){
+    describe('\n--------Inserting Multiple objects--------', function(){
         describe('Inserting Multiple correct objects', function(){
-            it("should return success", function(){
+            it("should return object with inserted ids array", function(){
                 return DB.insertMultipleObjects('person', [
                     {
                         "name":"Amr",
@@ -144,14 +145,13 @@ describe("Testing DB interface", function(){
                     }
                 ])
                 .then(result=>{
-                    assert.equal(result.succeeded, true);
                     assert.equal(Object.keys(result.insertedIds).length , 2);
                 })
             });
         });
 
         describe('Inserting 3 elements 1st,2nd correct and 3rd is falsy', function(){
-            it('should return succeeded = false and ins', function(){
+            it('should return', function(){
                 return DB.insertMultipleObjects(collName, [
                     {
                         name: "amr",
@@ -169,15 +169,14 @@ describe("Testing DB interface", function(){
                         friends:[]
                     },
                 ])
-                .then(function(result){
-                    assert.equal(result.succeeded, false);
-                    assert.equal( result.insertedCount, 2);
+                .catch((reason)=>{
+                    assert.equal( reason.nInserted, 2);
                 });
             });
         });
 
         describe('Inserting 3 elements 1st falsy, 2nd and 3rd are truthy', function(){
-            it('should return succeeded = false and insertedcount = 0', function(){
+            it('should return DbError and ninserted = 0', function(){
                 //any falsy document will stop the insertion operation, and the
                 // rest docs will not be inserted even if they are truthy
                 return DB.insertMultipleObjects(collName, [
@@ -198,18 +197,16 @@ describe("Testing DB interface", function(){
                     },
 
                 ])
-                .then(function(result){
-                    assert.equal(result.succeeded, false);
-                    assert.equal(result.insertedCount, 0);
+                .catch(function(reason){
+                    assert.equal(reason.nInserted, 0);
                 });
             });
         });
-
     });
 
     describe('\n---------Searching a collection----------', function(){
         describe("searching for existing element", function(){
-            it('should return succeeded = true, object data to be found', function(){
+            it('should return array of matched objects found', function(){
                 return new (require('mongodb').MongoClient)(dbUrl).connect()
                 .then( function(client){
                     return client.db(dbName).collection(collName).insertMany([
@@ -234,7 +231,6 @@ describe("Testing DB interface", function(){
                             return Promise.reject(new Error("INSERTION_FAILURE"));
                     })
                     .then(function(result){
-                        assert.equal(result.succeeded, true);
                         assert.equal(result.data[0].name, "Amr");
                         assert.equal(result.data[0].code, "234567")
                     })
@@ -247,7 +243,7 @@ describe("Testing DB interface", function(){
         });
 
         describe("searching for multiple elements", function(){
-            it('should return succeeded = true, object data to be found', function(){
+            it('should return objects that typically match the crireria', function(){
                 return new (require('mongodb').MongoClient)(dbUrl).connect()
                 .then( function(client){
                     return client.db(dbName).collection(collName).insertMany([
@@ -272,7 +268,6 @@ describe("Testing DB interface", function(){
                             return Promise.reject(new Error("INSERTION_FAILURE"));
                     })
                     .then(function(result){
-                        assert.equal(result.succeeded, true);
                         assert.equal(result.data[0].code, "234567");
                         assert.equal(result.data[1].code, "234567")
                     })
@@ -310,7 +305,7 @@ describe("Testing DB interface", function(){
                             return Promise.reject(new Error("INSERTION_FAILURE"));
                     })
                     .then(function(result){
-                        assert.equal(result.succeeded, true);
+        
                         assert.equal(result.data[0].name, "Amr");
                         //code, friends shouldn't exist in result
                         assert.equal(result.data[0].code, undefined);
@@ -350,7 +345,6 @@ describe("Testing DB interface", function(){
                             return Promise.reject(new Error("INSERTION_FAILURE"));
                     })
                     .then(function(result){
-                        assert.equal(result.succeeded, true);
                         assert.equal(result.data[0].name, "amr");
                         //code, friends shouldn't exist in result
                         assert.equal(result.data[1].name, "hussein");
@@ -390,7 +384,7 @@ describe("Testing DB interface", function(){
                             return Promise.reject(new Error("INSERTION_FAILURE"));
                     })
                     .then(function(result){
-                        assert.equal(result.succeeded, true);
+
                         assert.equal(result.data.length, 2);
                     })
                     .finally(()=>{
@@ -402,7 +396,7 @@ describe("Testing DB interface", function(){
         });
 
         describe("Serching for non existent document", function(){
-            it('should return succeeded = false and empty data array', function(){
+            it('should return empty data array', function(){
                 return new (require('mongodb').MongoClient)(dbUrl).connect()
                 .then( function(client){
                     return client.db(dbName).collection(collName).insertMany([
@@ -427,7 +421,6 @@ describe("Testing DB interface", function(){
                             return Promise.reject(new Error("INSERTION_FAILURE"));
                     })
                     .then(function(result){
-                        assert.equal(result.succeeded, false);
                         assert.equal(result.data.length, 0);
                     })
                     .finally(()=>{
@@ -442,7 +435,7 @@ describe("Testing DB interface", function(){
     describe('\n----------updating a document-------------', function(){
         
         describe('updating a single field in an existing document', function(){
-            it("should return succeeded = true and only a single document is affected", function(){
+            it("should return true and only a single document is affected", function(){
                 return new (require('mongodb').MongoClient)(dbUrl).connect()
                 .then( function(client){
                     return client.db(dbName).collection(collName).insertMany([
@@ -467,7 +460,7 @@ describe("Testing DB interface", function(){
                             return Promise.reject(new Error("INSERTION_FAILURE"));
                     })
                     .then(async function(result){
-                        assert.equal(result.succeeded, true);
+                        assert.equal(result, true);
                         let data = await client.db(dbName).collection(collName).find().toArray();
                     
                         assert.equal(data[1].code, "333333");
@@ -484,7 +477,7 @@ describe("Testing DB interface", function(){
         });
 
         describe('updating a non existing document', function(){
-            it('should return succeeded = false and object existence error', function(){
+            it('should return OBJECT_EXISTENCE_ERROR', function(){
                 return new (require('mongodb').MongoClient)(dbUrl).connect()
                 .then( function(client){
                     return client.db(dbName).collection(collName).insertMany([
@@ -508,9 +501,8 @@ describe("Testing DB interface", function(){
                         else
                             return Promise.reject(new Error("INSERTION_FAILURE"));
                     })
-                    .then(async function(result){
-                        assert.equal(result.succeeded, false);
-                        assert.equal(result.type, "OBJECT_EXISTENCE_ERROR");
+                    .catch(async function(reason){
+                        assert.ok(reason.name == "OBJECT_EXISTENCE_ERROR");
                     })
                     .finally(()=>{
                         return client.close();
@@ -519,8 +511,82 @@ describe("Testing DB interface", function(){
             });
         });
 
+        describe('updating a unique field to make it duplicated', function(){
+            it('should return UNIQUE_INDEX_VIOLATION_ERROR', function(){
+                return new (require('mongodb').MongoClient)(dbUrl).connect()
+                .then( function(client){
+                    return client.db(dbName).collection(collName).insertMany([
+                        {
+                            "name":"amr",
+                            "code" : "234567",
+                            "friends" : []
+                        },{
+                            "name": "ayman",
+                            "code":"342212",
+                            "friends": []
+                        },{
+                            "name": "hussein",
+                            "code": "543987",
+                            "friends": []
+                        }
+                    ])
+                    .then(function(result) {
+                        if(Object.keys(result.insertedIds).length == 3)
+                            return DB.setField(collName, {name: "ayman"}, "name", "amr");
+                        else
+                            return Promise.reject(new Error("INSERTION_FAILURE"));
+                    })
+                    .catch(async function(reason){
+                        assert.ok(reason.name == "UNIQUE_INDEX_VIOLATION_ERROR");
+                    })
+                    .finally(()=>{
+                        return client.close();
+                    });
+                });
+            })
+        });
+
+        describe('updating a field with incompatible data', function(){
+            it('should return SCHEMA_VIOLATION_ERROR', function(){
+                return new (require('mongodb').MongoClient)(dbUrl).connect()
+                .then( function(client){
+                    return client.db(dbName).collection(collName).insertMany([
+                        {
+                            "name":"amr",
+                            "code" : "234567",
+                            "friends" : []
+                        },{
+                            "name": "ayman",
+                            "code":"342212",
+                            "friends": []
+                        },{
+                            "name": "hussein",
+                            "code": "543987",
+                            "friends": []
+                        }
+                    ])
+                    .then(function(result) {
+                        if(Object.keys(result.insertedIds).length == 3)
+                            return DB.setField(collName, {name: "ayman"}, "name", 30);
+                        else
+                            return Promise.reject(new Error("INSERTION_FAILURE"));
+                    })
+                    .catch(async function(reason){
+                        assert.ok(reason.name == "SCHEMA_VIOLATION_ERROR");
+                    })
+                    .finally(()=>{
+                        return client.close();
+                    });
+                });
+            })
+        });
+
+
+    });
+
+    describe('\n------------updating arrays---------------', function(){
         describe('Inserting into an array field', function(){
-            it('should return succeeded = true and data should get inserted in the array', function(){
+            it('should return true and data should get inserted in the array', function(){
                 return new (require('mongodb').MongoClient)(dbUrl).connect()
                 .then( function(client){
                     return client.db(dbName).collection(collName).insertMany([
@@ -545,7 +611,7 @@ describe("Testing DB interface", function(){
                             return Promise.reject(new Error("INSERTION_FAILURE"));
                     })
                     .then(async function(result){
-                        assert.equal(result.succeeded, true);
+                        assert.equal(result, true);
                         let data = await client.db(dbName).collection(collName).findOne({name:"amr"});
                         assert.notEqual( data.friends.indexOf('ayman'),-1 );
                     })
@@ -555,11 +621,9 @@ describe("Testing DB interface", function(){
                 }); 
             });
         });
-    });
-
-    describe('\n------------updating arrays---------------', function(){
+        
         describe('Inserting duplicate elements into an array', function(){
-            it('should return succeeded = true, no duplicates to be found in the array', function(){
+            it('should return true, no duplicates to be found in the array', function(){
                 return new (require('mongodb').MongoClient)(dbUrl).connect()
                 .then( function(client){
                     return client.db(dbName).collection(collName).insertMany([
@@ -584,7 +648,7 @@ describe("Testing DB interface", function(){
                             return Promise.reject(new Error("INSERTION_FAILURE"));
                     })
                     .then(async function(result){
-                        assert.equal(result.succeeded, true);
+                        assert.equal(result, true);
                         let data = await client.db(dbName).collection(collName).findOne({name:"amr"});
                         assert.equal(data.friends.length, 1);
                     })
@@ -596,7 +660,7 @@ describe("Testing DB interface", function(){
         });
 
         describe('Inserting into an array using non existing key', function(){
-            it('should return succeeded = false, OBJECT_EXISTENCE_ERROR', function(){
+            it('should return OBJECT_EXISTENCE_ERROR', function(){
                 return new (require('mongodb').MongoClient)(dbUrl).connect()
                 .then( function(client){
                     return client.db(dbName).collection(collName).insertMany([
@@ -620,9 +684,44 @@ describe("Testing DB interface", function(){
                         else
                             return Promise.reject(new Error("INSERTION_FAILURE"));
                     })
-                    .then(async function(result){
-                        assert.equal(result.succeeded, false);
-                        assert.equal(result.type, 'OBJECT_EXISTENCE_ERROR');
+                    .catch(async function(reason){
+                        assert.equal(reason.name, 'OBJECT_EXISTENCE_ERROR');
+                    })
+                    .finally(()=>{
+                        return client.close();
+                    });
+                });
+            });
+        });
+
+        describe('Inserting into an array an invalid value', function(){
+            it('should return SCHEMA_VIOLATION_ERROR', function(){
+                return new (require('mongodb').MongoClient)(dbUrl).connect()
+                .then( function(client){
+                    return client.db(dbName).collection(collName).insertMany([
+                        {
+                            "name":"amr",
+                            "code" : "234567",
+                            "friends" : ["ayman"]
+                        },{
+                            "name": "ayman",
+                            "code":"342212",
+                            "friends": []
+                        },{
+                            "name": "hussein",
+                            "code": "543987",
+                            "friends": []
+                        }
+                    ])
+                    .then(function(result) {
+                        if(Object.keys(result.insertedIds).length == 3)
+                            return DB.insertIntoArrayField(collName, {name:'amr'}, "friends", 34);
+                        else
+                            return Promise.reject(new Error("INSERTION_FAILURE"));
+                    })
+                    .catch(async function(reason){
+            
+                        assert.equal(reason.name, 'SCHEMA_VIOLATION_ERROR');
                     })
                     .finally(()=>{
                         return client.close();
@@ -632,14 +731,14 @@ describe("Testing DB interface", function(){
         });
 
         describe('Removing from an array', function(){
-            it("should return succeeded=true and element must dissapear from the array", function(){
+            it("should return true and element must dissapear from the array", function(){
                 return new (require('mongodb').MongoClient)(dbUrl).connect()
                 .then( function(client){
                     return client.db(dbName).collection(collName).insertMany([
                         {
                             "name":"amr",
                             "code" : "234567",
-                            "friends" : ["ayman", "ali"]
+                            "friends" : ["ali"]
                         },{
                             "name": "ayman",
                             "code":"342212",
@@ -657,9 +756,9 @@ describe("Testing DB interface", function(){
                             return Promise.reject(new Error("INSERTION_FAILURE"));
                     })
                     .then(async function(result){
-                        assert.equal(result.succeeded, true);
+                        assert.equal(result, true);
                         let data = await client.db(dbName).collection(collName).findOne({name:"amr"});
-                        assert.equal(data.friends.length, 1);
+                        assert.equal(data.friends.length, 0);
                     })
                     .finally(()=>{
                         return client.close();
@@ -668,8 +767,8 @@ describe("Testing DB interface", function(){
             });
         });
 
-        describe('Removing from an array elament that doesn\'t exist', function(){
-            it('should return succeeded = false, array is untouched', function(){
+        describe('Removing from an array an element that doesn\'t exist', function(){
+            it('should return true indicating that element doesn\'texist in the array', function(){
                 return new (require('mongodb').MongoClient)(dbUrl).connect()
                 .then( function(client){
                     return client.db(dbName).collection(collName).insertMany([
@@ -693,8 +792,8 @@ describe("Testing DB interface", function(){
                         else
                             return Promise.reject(new Error("INSERTION_FAILURE"));
                     })
-                    .then(async function(result){
-                        assert.equal(result.succeeded, true);
+                    .catch(async function(result){
+                        assert.equal(result, true);
                         let data = await client.db(dbName).collection(collName).findOne({name:"amr"});
                         assert.equal(data.friends.length, 2);
                     })
@@ -706,7 +805,7 @@ describe("Testing DB interface", function(){
         });
 
         describe('Removing from an array in a non existing document', function(){
-            it('should return succeeded = false, OBJECT_EXISTENCE_ERROR', function(){
+            it('should return  OBJECT_EXISTENCE_ERROR', function(){
                 return new (require('mongodb').MongoClient)(dbUrl).connect()
                 .then( function(client){
                     return client.db(dbName).collection(collName).insertMany([
@@ -730,9 +829,8 @@ describe("Testing DB interface", function(){
                         else
                             return Promise.reject(new Error("INSERTION_FAILURE"));
                     })
-                    .then(async function(result){
-                        assert.equal(result.succeeded, false);
-                        assert.equal(result.type, 'OBJECT_EXISTENCE_ERROR');
+                    .catch(async function(reason){
+                        assert.equal(reason.name, 'OBJECT_EXISTENCE_ERROR');
                     })
                     .finally(()=>{
                         return client.close();
@@ -743,10 +841,10 @@ describe("Testing DB interface", function(){
 
     });
 
-    describe('\n----------Deleting Objects ---------------', function(){
+    describe('\n------------Deleting Objects---------------', function(){
 
         describe('Deleting a single object', function(){
-            it('should return succeeded = true, object must disappear from the collection', function(){
+            it('should return nDeleted = 1 ,object must disappear from the collection', function(){
                 return new (require('mongodb').MongoClient)(dbUrl).connect()
                 .then( function(client){
                     return client.db(dbName).collection(collName).insertMany([
@@ -771,7 +869,7 @@ describe("Testing DB interface", function(){
                             return Promise.reject(new Error("INSERTION_FAILURE"));
                     })
                     .then(async function(result){
-                        assert.equal(result.succeeded, true);
+                        assert.equal(result.nDeleted, 1);
                         let data = await client.db(dbName).collection(collName).find().toArray();
                         assert.equal(Object.keys(data).length, 2);
                     })
@@ -783,7 +881,7 @@ describe("Testing DB interface", function(){
         });
 
         describe('Deleting a single object with a non existing key', function(){
-            it('should return succeeded = false, object existence error', function(){
+            it('should return nDeleted = 0', function(){
                 return new (require('mongodb').MongoClient)(dbUrl).connect()
                 .then( function(client){
                     return client.db(dbName).collection(collName).insertMany([
@@ -808,8 +906,8 @@ describe("Testing DB interface", function(){
                             return Promise.reject(new Error("INSERTION_FAILURE"));
                     })
                     .then(async function(result){
-                        assert.equal(result.succeeded, false);
-                        assert.equal(result.type, 'OBJECT_EXISTENCE_ERROR');
+                        
+                        assert.equal(result.nDeleted, 0);
                         let data = await client.db(dbName).collection(collName).find().toArray();
                         assert.equal(Object.keys(data).length, 3);
                     })
@@ -823,7 +921,7 @@ describe("Testing DB interface", function(){
 
     describe('\n----------Dropping collection--------------', function(){
         describe('deleting exiting collection', function(){
-            it('should return succeeded = true , collection disappears from database', function(){
+            it('should return true , collection disappears from database', function(){
                 return new (require('mongodb').MongoClient)(dbUrl).connect()
                 .then( function(client){
                     return client.db(dbName).collection(collName).insertMany([
@@ -848,7 +946,7 @@ describe("Testing DB interface", function(){
                             return Promise.reject(new Error("INSERTION_FAILURE"));
                     })
                     .then(async function(result){
-                        assert.equal(result.succeeded, true);
+                        assert.equal(result, true);
                         
                         let data = await client.db(dbName).collections();
                         assert.equal(data.length, 0);
@@ -861,11 +959,10 @@ describe("Testing DB interface", function(){
         });
 
         describe('deleting non exiting collection', function(){
-            it('should return succeeded = false , collection disappears from database', function(){
+            it('should return Db_ERROR', function(){
                 return DB.dropCollection('dummy')
-                .then(async (result)=>{
-                    assert.equal(result.succeeded, false);
-                    assert.equal(result.type, 26); //namespace not found
+                .catch(async (reason)=>{
+                    assert.equal(reason.name, "DB_ERROR");
                     const client = await new (require('mongodb').MongoClient)(dbUrl).connect();
                     const collections = await client.db(dbName).collections();
                     assert.equal(collections.length, 1);
