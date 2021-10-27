@@ -1,12 +1,12 @@
 # MongoInterface
 a simple mongodb interface in nodeJs offering simple functionalities<br>
-that can save you alot of time when dealing with the Mongo driver
-
+that can save you alot of time when dealing with the MongoDB native driver<br>
+<b>check the test file for examples at: </b>[tests](test/mongo-interface.test.js)
 # Functions offered
 
 ## connect()
-```returns : Promise<MongoCLient>```<br>
 <pre>
+<b>returns : Promise&lt;MongoClient&gt;</b>
 it ensures that there is only a single instance
 that is used for all operations
 </pre>
@@ -14,18 +14,22 @@ that is used for all operations
 ## close()
 <pre>
 <b>returns : Promise&lt;void&gt;</b>
-closes the client instance
+closes the client interface
 </pre>
 
 ## insertObject(collection, object)
-<pre>
+<pre id="insert-object">
 <b>returns : Promise&lt;Object&gt;</b>
 inserts a new object into the specified collection,
 result is different in case of success and failure
     success:
-        { succeeded: true, insertedId: objectId}
+        { insertedId: objectId}
     failure:
-        { succeeded: false, type: "errorCode", msg: "error description"}
+        throws { 
+            UniqueIndexViolationError,
+            SchemaViolationError,
+            DbError
+        }
 </pre>
 
 ## InsertMultipleObjects(collection, objArr)
@@ -34,9 +38,13 @@ result is different in case of success and failure
 inserts multiple objects sequentially in a collection and stops with the first error,
 result is different in terms of success and failure
     success:
-        { succeeded: true, insertedIds: [objectId] }
+        { insertedIds: objectId[] }
     failure:
-        { succeeded: false, type: "errorCode", msg: "error description"},
+        throws {
+            UniqueIndexViolationError,
+            SchemaViolationError,
+            DbError
+        }
 </pre>
 
 ## searchCollection(collection, filter, proj, sortObj, limit)
@@ -49,66 +57,124 @@ searches a collection for a multiple objects using:
     limit: number to limit the amount of the result
 
     success:
-        { succeeded : true, data: array of found documents}
+        {data: array of found documents}
     failure:
-        { succeeded : false, data: empty array } if nothing found
-        { succeeded : false, type: "errorCode", message: "error description"} if another error occured
+        throws {
+            DbError
+        }
+    Note that if nothing is found, the situation will be considered
+    a success and the returned array will be empty 
 </pre>
 
 ## setField(collection, filter, fieldName, fieldValue)
 <pre>
 <b>returns : Promise&lt;Object&gt;</b>
 updates a specific document based on the filter to alter a field
-named <b>fieldName</b> with the value in <b>fieldValue</b>,
+named <b>fieldName</b> with the value in <b>fieldValue</b>
 
     success:
         { succeeded : true }
     failure:
-        { succeeded : false, type : "error code", message : "error description" }
+        throws: {
+            UniqueIndexViolationError,
+            SchemaViolationError,
+            ObjectExistenceError,
+            DbError
+        }
 
 </pre>
 
 ## insertIntoArrayField(collection, filter, arrayName, value)
 <pre>
 <b>returns : Promise&lt;Object&gt;</b>
-inserts <b>unique</b> data in array fields,
-the operation succeeds indicating that value is inserted or it previously existed in arrayName,
-and fails indicating that object determined by filter wasn't found
+inserts <b>unique</b> data in array fields
+and makes sure that there are no duplicates,
+the operation succeeds indicating that value is inserted or it previously existed in arrayName
     success:
         { succeeded : true }
     failure:
-        { succeeded : false, type : "error code", message : "error description" }
+        throws {
+            SchemaViolationError,
+            ObjectExistenceError,
+            DbError
+        }
 </pre>
 
 ## removeFromArrayField(collection, filter, arrayName, value)
 <pre>
 <b>returns : Promise&lt;Object&gt;</b>
-removes an element from an array field,
+removes all elements identified by value from an array field,
 the operation succeeds indicating that element is no more existent in 
-the array whether it existed before or not,
+the array whether it existed in the array before or not,
 and fails indicating that the document is not found
     success:
         { succeeded : true }
     failure:
-        { succeeded : false, type : "error code", message : "error description" }
+        throws {
+            ObjectExistenceError,
+            DbError
+        }
 </pre>
 
 ## deleteObject(collection, filter)
 <pre>
 <b>returns : Promise&lt;Object&gt;</b>
-deletes an object from a collection
+ deletes a single object from a collection
     success:
-        { succeeded : true,  deletedCount : 1}
+        { nDeleted : 1}
     failure:
-        { succeeded : false. type: "errorCode", message: "error description" } if object not found
+        throws {DbError}
+    note that if nothing is found in the collection to be deleted,
+    nDeleted will be 0, and the situation will be considered a success
 </pre>
 
 ## dropCollection(collection)
 <pre>
 <b>returns : Promise&lt;Object&gt;</b>
-drops an entire collection
+drops an entire collection, if the collection exists the result is success
+, otherwise DbError is thrown
     success:
         { succeeded : true}
     failure:
-        { succeeded : false. type: "errorCode", message: "error description" } if collection isn't found
+        throws {DbError}
+</pre>
+
+
+# Errors
+
+## DbError 
+<pre>
+    this is the most basic version of errors, it will be thrown in case of any error
+    that is not handled by the following error types
+</pre>
+
+## WriteError
+<b>extends DbError</b>
+<pre>
+    it indicates that an error happened while a write or update operation,
+    <b>e.g.</b> error while insertObject or setField
+</pre>
+
+## UniqueIndexViolationError
+<b>extends WriteError</b>
+<pre>
+    it's a form of a writeError, thrown when attempting to insert or update
+    a document in a collection and the result contradicts with a unique index in that collection
+</pre>
+
+## SchemaViolationError
+<b>extends WriteError</b>
+<pre>
+    it's a form of a writeError, thrown when attempting to insert or update
+    a document in a collection and the result contradicts with a schema in that
+    collection
+</pre>
+
+## ObjectExistenceError
+<b>extends DbError</b>
+<pre>
+    this error is used in cases where its's essential that the object exists
+    before the operation, like setField, insertIntoArrayField.
+    it indicates that the object tha you want to operate on actually doesn't exist in
+    the collection.
 </pre>
